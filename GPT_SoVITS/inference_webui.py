@@ -899,7 +899,8 @@ with gr.Blocks(title="GPT-SoVITS WebUI") as app:
         gr.Markdown(html_center(i18n("*请填写需要合成的目标文本和语种模式"),'h3'))
         with gr.Row():
             with gr.Column(scale=13):
-                text = gr.Textbox(label=i18n("需要合成的文本"), value="", lines=26, max_lines=26)
+                text = gr.Textbox(label=i18n("需要合成的文本"), value="", lines=10, max_lines=10)
+                inference_button = gr.Button(i18n("合成语音"), variant="primary", size='lg', scale=25)
             with gr.Column(scale=7):
                 text_language = gr.Dropdown(
                         label=i18n("需要合成的语种")+i18n(".限制范围越小判别效果越好。"), choices=list(dict_language.keys()), value=i18n("中文"), scale=1
@@ -922,7 +923,7 @@ with gr.Blocks(title="GPT-SoVITS WebUI") as app:
             #     phoneme=gr.Textbox(label=i18n("音素框"), value="")
             #     get_phoneme_button = gr.Button(i18n("目标文本转音素"), variant="primary")
         with gr.Row():
-            inference_button = gr.Button(i18n("合成语音"), variant="primary", size='lg', scale=25)
+            
             output = gr.Audio(label=i18n("输出的语音"), scale=14)
 
             history_audio = []
