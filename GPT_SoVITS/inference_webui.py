@@ -936,9 +936,9 @@ with gr.Blocks(title="GPT-SoVITS WebUI") as app:
                 clear_history_button = gr.Button("清空记录")
             index=0
             while(index<history_max_num):
-                index += 1
+                index += 5
                 with gr.Row():
-                    for _ in range(1):
+                    for _ in range(5):
                         with gr.Row():
                             with gr.Group():
                                 history_checkbox.append(gr.Checkbox(interactive=True,show_label=False,label=""))
