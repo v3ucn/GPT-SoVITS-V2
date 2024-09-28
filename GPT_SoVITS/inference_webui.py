@@ -31,6 +31,89 @@ for name in os.listdir("./参考音频/"):
     reference_wavs_pro.append(name)
 
 
+#region 输出音频历史记录相关
+output_history =[]
+history_max_num = 20
+change_num = 20
+
+
+
+def sync_output_history_to_checkbox_audio():
+    checkbox_result = []
+    audio_result = []
+    for item in output_history:
+        try:
+            label = item['label']
+        except Exception as e:
+            label = ""
+        if len(label)>15:
+            label=label[:15]+'...'
+        checkbox_result.append(gr.update(label=label,value=False))
+        try:
+            audio_result.append(gr.update(value=item['value']))
+        except Exception as e:
+            audio_result.append(gr.update(value = None))
+    for _ in range(len(audio_result),history_max_num):
+        checkbox_result.append(gr.update(label="",value=False))
+        audio_result.append(gr.update(value = None))
+    return [*checkbox_result,*audio_result]
+
+def add_to_history(audio,input_text):
+    if(audio is None or audio[1] is not None):
+        if len(output_history) == history_max_num:
+            output_history.pop()
+        output_history.insert(0,{'value':audio,'label':input_text})
+
+    return [*sync_output_history_to_checkbox_audio()]
+
+
+
+def clear_history():
+    output_history = []
+    checkbox_result = []
+    audio_result = []
+    for _ in range(history_max_num):
+        checkbox_result.append(gr.update(label="",value=False))
+        audio_result.append(gr.update(value = None))
+    return [*checkbox_result,*audio_result]
+
+def shown_audio_num_change(audio_num):
+    audio_num = int(audio_num)
+    audio_result = []
+    checkbox_result = []
+
+    global change_num
+
+    change_num = audio_num
+
+    for _ in range(audio_num):
+        audio_result.append(gr.update(visible=True))
+        checkbox_result.append(gr.update(visible=True))
+    for _ in range(audio_num,history_max_num):
+        audio_result.append(gr.update(visible=False))
+        checkbox_result.append(gr.update(visible=False))
+    return [*checkbox_result,*audio_result]
+
+def delete_selected_history(*selected_list):
+    for i in reversed(range(len(output_history))):
+        if(selected_list[i]):
+            output_history.pop(i)
+    return [*sync_output_history_to_checkbox_audio()]
+
+def merge_selected_history(*selected_list):
+    m_list = []
+    labels = ""
+    for i in reversed(range(len(output_history))):
+        if(selected_list[i]):
+            labels+=" "+output_history[i]["label"]
+            m_list.append(output_history[i]["value"][1])
+    if(m_list):
+        combined = np.hstack(m_list)
+        delete_selected_history(*selected_list)       
+        return add_to_history((32000, combined),labels)
+    return [*sync_output_history_to_checkbox_audio()]
+
+
 def change_choices_ref():
 
     reference_wavs_pro = ["选择参考音频,或者自己上传"]
@@ -841,6 +924,31 @@ with gr.Blocks(title="GPT-SoVITS WebUI") as app:
         with gr.Row():
             inference_button = gr.Button(i18n("合成语音"), variant="primary", size='lg', scale=25)
             output = gr.Audio(label=i18n("输出的语音"), scale=14)
+
+            history_audio = []
+            history_checkbox = []
+        with gr.Accordion("生成历史"):
+            with gr.Row():
+                shown_audio_num = gr.Slider(1,20,history_max_num,step=1,interactive=True,label="记录显示数量")
+                add_history_button = gr.Button("添加当前音频记录",variant="primary")
+                merge_audio_button = gr.Button("合并选中音频",variant="primary")
+                delete_select_history_button = gr.Button("删除选择的记录")
+                clear_history_button = gr.Button("清空记录")
+            index=0
+            while(index<history_max_num):
+                index += 1
+                with gr.Row():
+                    for _ in range(1):
+                        with gr.Row():
+                            with gr.Group():
+                                history_checkbox.append(gr.Checkbox(interactive=True,show_label=False,label=""))
+                                history_audio.append(gr.Audio(label="",show_download_button=True))
+
+            shown_audio_num.change(shown_audio_num_change,[shown_audio_num],[*history_checkbox,*history_audio])
+            add_history_button.click(add_to_history,[output,text],[*history_checkbox,*history_audio])
+            merge_audio_button.click(merge_selected_history,[*history_checkbox],[*history_checkbox,*history_audio])
+            delete_select_history_button.click(delete_selected_history,[*history_checkbox],[*history_checkbox,*history_audio])
+            clear_history_button.click(clear_history,outputs=[*history_checkbox,*history_audio])
 
         inference_button.click(
             get_tts_wav,
