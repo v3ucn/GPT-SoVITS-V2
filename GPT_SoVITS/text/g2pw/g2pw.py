@@ -127,14 +127,14 @@ def get_dict():
 
 def read_dict():
     polyphonic_dict = {}
-    with open(PP_DICT_PATH) as f:
+    with open(PP_DICT_PATH,encoding="utf-8") as f:
         line = f.readline()
         while line:
             key, value_str = line.split(':')
             value = eval(value_str.strip())
             polyphonic_dict[key.strip()] = value
             line = f.readline()
-    with open(PP_FIX_DICT_PATH) as f:
+    with open(PP_FIX_DICT_PATH,encoding="utf-8") as f:
         line = f.readline()
         while line:
             key, value_str = line.split(':')
@@ -142,6 +142,33 @@ def read_dict():
             polyphonic_dict[key.strip()] = value
             line = f.readline()
     return polyphonic_dict
+
+# def read_dict(pp_dict_path, pp_fix_dict_path, encoding='utf-8'):
+#     """
+#     读取并合并两个字典文件，指定UTF-8编码。
+
+#     Args:
+#         pp_dict_path: 第一个字典文件的路径。
+#         pp_fix_dict_path: 第二个字典文件的路径。
+#         encoding: 文件编码方式，默认为UTF-8。
+
+#     Returns:
+#         合并后的字典。如果文件读取失败，返回None。
+#     """
+#     polyphonic_dict = {}
+#     try:
+#         with open(pp_dict_path, 'r', encoding=encoding) as f:
+#             polyphonic_dict = json.load(f)  # 使用json.load()安全地加载JSON数据
+
+#         with open(pp_fix_dict_path, 'r', encoding=encoding) as f:
+#             fix_dict = json.load(f)  # 使用json.load()安全地加载JSON数据
+#             polyphonic_dict.update(fix_dict) # 合并字典
+
+#     except (FileNotFoundError, json.JSONDecodeError) as e:
+#         print(f"读取字典文件失败: {e}")
+#         return None
+
+#     return polyphonic_dict
 
 
 def correct_pronunciation(word,word_pinyins):

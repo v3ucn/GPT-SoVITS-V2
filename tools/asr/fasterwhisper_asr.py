@@ -40,6 +40,11 @@ def execute_asr(input_folder, output_folder, model_size, language, precision):
         model_path = f'tools/asr/models/faster-whisper-{model_size}'
     else:
         model_path = model_size
+
+    if model_size == "faster-whisper-large-v3-turbo-ct2":
+        model_path = f'tools/asr/models/faster-whisper-large-v3-turbo-ct2'
+
+    
     if language == 'auto':
         language = None #不设置语种由模型自动输出概率最高的语种
     print("loading faster whisper model:",model_size,model_path)
@@ -66,11 +71,11 @@ def execute_asr(input_folder, output_folder, model_size, language, precision):
                 language       = language)
             text = ''
 
-            if info.language == "zh":
-                print("检测为中文文本, 转 FunASR 处理")
-                if("only_asr" not in globals()):
-                    from tools.asr.funasr_asr import only_asr  #如果用英文就不需要导入下载模型
-                text = only_asr(file_path, language=info.language.lower())
+            # if info.language == "zh":
+            #     print("检测为中文文本, 转 FunASR 处理")
+            #     if("only_asr" not in globals()):
+            #         from tools.asr.funasr_asr import only_asr  #如果用英文就不需要导入下载模型
+            #     text = only_asr(file_path, language=info.language.lower())
 
             if text == '':
                 for segment in segments:
