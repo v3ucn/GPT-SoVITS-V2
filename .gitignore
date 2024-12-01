@@ -17,3 +17,7 @@ weight.json
 ffmpeg*
 ffprobe*
 pretrained_models
+*_audio
+*.wav
+Keira
+*.swp
