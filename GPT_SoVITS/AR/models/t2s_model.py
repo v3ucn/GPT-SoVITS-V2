@@ -1,6 +1,9 @@
 # modified from https://github.com/yangdongchao/SoundStorm/blob/master/soundstorm/s1/AR/models/t2s_model.py
 # reference: https://github.com/lifeiteng/vall-e
 import math
+import os, sys
+now_dir = os.getcwd()
+sys.path.append(now_dir)
 from typing import List, Optional
 import torch
 from tqdm import tqdm
@@ -12,7 +15,7 @@ from AR.models.utils import (
     logits_to_probs,
     multinomial_sample_one_no_sync,
     dpo_loss,
-    make_reject_y,
+    make_reject_y, 
     get_batch_logps
 )
 from AR.modules.embedding import SinePositionalEmbedding
@@ -36,7 +39,7 @@ default_config = {
     "EOS": 1024,
 }
 
-# @torch.jit.script ## 使用的话首次推理会非常慢，而且推理速度不稳定
+@torch.jit.script
 # Efficient implementation equivalent to the following:
 def scaled_dot_product_attention(query:torch.Tensor, key:torch.Tensor, value:torch.Tensor, attn_mask:Optional[torch.Tensor]=None, scale:Optional[torch.Tensor]=None) -> torch.Tensor:
     B, H, L, S =query.size(0), query.size(1), query.size(-2), key.size(-2)
@@ -82,20 +85,20 @@ class T2SMLP:
 @torch.jit.script
 class T2SBlock:
     def __init__(
-            self,
-            num_heads,
-            hidden_dim: int,
-            mlp: T2SMLP,
-            qkv_w,
-            qkv_b,
-            out_w,
-            out_b,
-            norm_w1,
-            norm_b1,
-            norm_eps1,
-            norm_w2,
-            norm_b2,
-            norm_eps2,
+        self,
+        num_heads,
+        hidden_dim: int,
+        mlp: T2SMLP,
+        qkv_w,
+        qkv_b,
+        out_w,
+        out_b,
+        norm_w1,
+        norm_b1,
+        norm_eps1,
+        norm_w2,
+        norm_b2,
+        norm_eps2,
     ):
         self.num_heads = num_heads
         self.mlp = mlp
@@ -123,7 +126,7 @@ class T2SBlock:
         else:
             return x * padding_mask
         
-    def process_prompt(self, x:torch.Tensor, attn_mask : torch.Tensor, padding_mask:Optional[torch.Tensor]=None, torch_sdpa:bool=True):
+    def process_prompt(self, x:torch.Tensor, attn_mask : torch.Tensor, padding_mask:Optional[torch.Tensor]=None):
 
             
         q, k, v = F.linear(self.to_mask(x, padding_mask), self.qkv_w, self.qkv_b).chunk(3, dim=-1)
@@ -140,10 +143,7 @@ class T2SBlock:
         k = k_cache.view(batch_size, kv_len, self.num_heads, -1).transpose(1, 2)
         v = v_cache.view(batch_size, kv_len, self.num_heads, -1).transpose(1, 2)
 
-        if torch_sdpa:
-            attn = F.scaled_dot_product_attention(q, k, v, ~attn_mask)
-        else:
-            attn = scaled_dot_product_attention(q, k, v, attn_mask)
+        attn = scaled_dot_product_attention(q, k, v, attn_mask)
 
         attn = attn.permute(2, 0, 1, 3).reshape(batch_size*q_len, self.hidden_dim)
         attn = attn.view(q_len, batch_size, self.hidden_dim).transpose(1, 0)
@@ -186,7 +186,7 @@ class T2SBlock:
             )
         return x, k_cache, v_cache
     
-    def decode_next_token(self, x:torch.Tensor, k_cache:torch.Tensor, v_cache:torch.Tensor, attn_mask:Optional[torch.Tensor]=None, torch_sdpa:bool=True):
+    def decode_next_token(self, x:torch.Tensor, k_cache:torch.Tensor, v_cache:torch.Tensor, attn_mask:Optional[torch.Tensor]=None):
         q, k, v = F.linear(x, self.qkv_w, self.qkv_b).chunk(3, dim=-1)
 
         k_cache = torch.cat([k_cache, k], dim=1)
@@ -201,10 +201,7 @@ class T2SBlock:
         v = v_cache.view(batch_size, kv_len, self.num_heads, -1).transpose(1, 2)
 
 
-        if torch_sdpa:
-            attn = F.scaled_dot_product_attention(q, k, v)
-        else:
-            attn = scaled_dot_product_attention(q, k, v, attn_mask)
+        attn = scaled_dot_product_attention(q, k, v, attn_mask)
 
         attn = attn.permute(2, 0, 1, 3).reshape(batch_size*q_len, self.hidden_dim)
         attn = attn.view(q_len, batch_size, self.hidden_dim).transpose(1, 0)
@@ -233,26 +230,21 @@ class T2STransformer:
 
     def process_prompt(
         self, x:torch.Tensor, attn_mask : torch.Tensor,
-        padding_mask : Optional[torch.Tensor]=None, 
-        torch_sdpa:bool=True
+        padding_mask : Optional[torch.Tensor]=None,
         ):
         k_cache : List[torch.Tensor] = []
         v_cache : List[torch.Tensor] = []
         for i in range(self.num_blocks):
-            x, k_cache_, v_cache_ = self.blocks[i].process_prompt(x, attn_mask, padding_mask, torch_sdpa)
+            x, k_cache_, v_cache_ = self.blocks[i].process_prompt(x, attn_mask, padding_mask)
             k_cache.append(k_cache_)
             v_cache.append(v_cache_)
         return x, k_cache, v_cache
 
     def decode_next_token(
-        self, x:torch.Tensor, 
-        k_cache: List[torch.Tensor], 
-        v_cache: List[torch.Tensor], 
-        attn_mask : Optional[torch.Tensor]=None,
-        torch_sdpa:bool=True
+        self, x:torch.Tensor, k_cache: List[torch.Tensor], v_cache: List[torch.Tensor], attn_mask : Optional[torch.Tensor]=None,
     ):
         for i in range(self.num_blocks):
-            x, k_cache[i], v_cache[i] = self.blocks[i].decode_next_token(x, k_cache[i], v_cache[i], attn_mask, torch_sdpa)
+            x, k_cache[i], v_cache[i] = self.blocks[i].decode_next_token(x, k_cache[i], v_cache[i], attn_mask)
         return x, k_cache, v_cache
 
 
@@ -464,6 +456,7 @@ class Text2SemanticDecoder(nn.Module):
             (0, y_len),
             value=True,
         )
+        # x_attn_mask[:, x_len]=False 
         y_attn_mask = F.pad(
             torch.triu(
                 torch.ones(y_len, y_len, dtype=torch.bool, device=x.device),
@@ -498,14 +491,14 @@ class Text2SemanticDecoder(nn.Module):
 
     # 需要看下这个函数和 forward 的区别以及没有 semantic 的时候 prompts 输入什么
     def infer(
-            self,
-            x,
-            x_lens,
-            prompts,
-            bert_feature,
-            top_k: int = -100,
-            early_stop_num: int = -1,
-            temperature: float = 1.0,
+        self,
+        x,
+        x_lens,
+        prompts,
+        bert_feature,
+        top_k: int = -100,
+        early_stop_num: int = -1,
+        temperature: float = 1.0,
     ):
         x = self.ar_text_embedding(x)
         x = x + self.bert_proj(bert_feature.transpose(1, 2))
@@ -529,7 +522,7 @@ class Text2SemanticDecoder(nn.Module):
                 value=True,
             )
             y_attn_mask = F.pad(
-                torch.triu(torch.ones(y_len, y_len, dtype=torch.bool), diagonal=1),
+                torch.triu(torch.ones(y_len, y_len, dtype=torch.bool), diagonal=0),
                 (x_len, 0),
                 value=False,
             )
@@ -588,8 +581,7 @@ class Text2SemanticDecoder(nn.Module):
     ):
         if prompts is None:
             print("Warning: Prompt free is not supported batch_infer! switch to naive_infer")
-            return self.infer_panel_naive_batched(x, x_lens, prompts, bert_feature, top_k=top_k, top_p=top_p, early_stop_num=early_stop_num, temperature=temperature, **kwargs)
-
+            return self.infer_panel_0307(x, x_lens, prompts, bert_feature, top_k=top_k, top_p=top_p, early_stop_num=early_stop_num, temperature=temperature, **kwargs)
 
         max_len = kwargs.get("max_len",x_lens.max())
         x_list = []
@@ -670,9 +662,10 @@ class Text2SemanticDecoder(nn.Module):
         idx_list = [None]*y.shape[0]
         for idx in tqdm(range(1500)):
             if idx == 0:
-                xy_dec, k_cache, v_cache = self.t2s_transformer.process_prompt(xy_pos, xy_attn_mask, xy_padding_mask, False)
+                xy_dec, k_cache, v_cache = self.t2s_transformer.process_prompt(xy_pos, xy_attn_mask, xy_padding_mask)
             else:
-                xy_dec, k_cache, v_cache = self.t2s_transformer.decode_next_token(xy_pos, k_cache, v_cache, xy_attn_mask, False)
+                xy_dec, k_cache, v_cache = self.t2s_transformer.decode_next_token(xy_pos, k_cache, v_cache, xy_attn_mask)
+
             logits = self.ar_predict_layer(
                 xy_dec[:, -1]
             )
@@ -750,7 +743,7 @@ class Text2SemanticDecoder(nn.Module):
         # print(idx_list)
         return y_list, idx_list
     
-    def infer_panel_naive_batched(self,
+    def infer_panel_0307(self,
         x:List[torch.LongTensor],  #####全部文本token
         x_lens:torch.LongTensor,
         prompts:torch.LongTensor,  ####参考音频token
@@ -799,7 +792,7 @@ class Text2SemanticDecoder(nn.Module):
 
         # AR Decoder
         y = prompts
-
+        
         x_len = x.shape[1]
         x_attn_mask = torch.zeros((x_len, x_len), dtype=torch.bool)
         stop = False
@@ -836,12 +829,10 @@ class Text2SemanticDecoder(nn.Module):
             (x_len, 0),
             value=False,
         )
-        xy_attn_mask = torch.concat([x_attn_mask_pad, y_attn_mask], dim=0)\
-                                                .unsqueeze(0)\
-                                                .expand(bsz*self.num_head, -1, -1)\
-                                                .view(bsz, self.num_head, src_len, src_len)\
-                                                .to(device=x.device, dtype=torch.bool)
-
+        xy_attn_mask = torch.concat([x_attn_mask_pad, y_attn_mask], dim=0).unsqueeze(0).expand(bsz*self.num_head, -1, -1).view(bsz, self.num_head, src_len, src_len).to(x.device)
+        xy_attn_mask = xy_attn_mask.bool()
+        # new_attn_mask = torch.zeros_like(xy_attn_mask, dtype=x.dtype)
+        # xy_attn_mask = new_attn_mask.masked_fill(xy_attn_mask, float("-inf"))
         for idx in tqdm(range(1500)):
             if xy_attn_mask is not None:
                 xy_dec, k_cache, v_cache = self.t2s_transformer.process_prompt(xy_pos, xy_attn_mask, None)
@@ -869,7 +860,7 @@ class Text2SemanticDecoder(nn.Module):
             if torch.argmax(logits, dim=-1)[0] == self.EOS or samples[0, 0] == self.EOS:
                 stop = True
             if stop:
-                if y.shape[1] == 0:
+                if y.shape[1]==0:
                     y = torch.concat([y, torch.zeros_like(samples)], dim=1)
                     print("bad zero prediction")
                 print(f"T2S Decoding EOS [{prefix_len} -> {y.shape[1]}]")
@@ -882,7 +873,6 @@ class Text2SemanticDecoder(nn.Module):
         if ref_free:
             return y[:, :-1], 0
         return y[:, :-1], idx - 1
-    
     
     def infer_panel(
         self,

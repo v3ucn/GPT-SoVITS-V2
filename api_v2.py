@@ -192,7 +192,7 @@ def pack_ogg(io_buffer:BytesIO, data:np.ndarray, rate:int):
     return io_buffer
 
 def replace_speaker(text):
-
+    import re
     return re.sub(r"\[.*?\]", "", text, flags=re.UNICODE)
 
 
@@ -336,24 +336,37 @@ async def tts_handle(req:dict):
         req["return_fragment"] = True
     
     try:
-        tts_generator=tts_pipeline.run(req)
-        
+        tts_generator = tts_pipeline.run(req)
+
         if streaming_mode:
-            def streaming_generator(tts_generator:Generator, media_type:str):
+            def streaming_generator(tts_generator: Generator, media_type: str):
                 if media_type == "wav":
                     yield wave_header_chunk()
                     media_type = "raw"
                 for sr, chunk in tts_generator:
                     yield pack_audio(BytesIO(), chunk, sr, media_type).getvalue()
-            # _media_type = f"audio/{media_type}" if not (streaming_mode and media_type in ["wav", "raw"]) else f"audio/x-{media_type}"
-            return StreamingResponse(streaming_generator(tts_generator, media_type, ), media_type=f"audio/{media_type}")
-    
+            
+            return StreamingResponse(
+                streaming_generator(tts_generator, media_type), 
+                media_type=f"audio/{media_type}"
+            )
         else:
             sr, audio_data = next(tts_generator)
             audio_data = pack_audio(BytesIO(), audio_data, sr, media_type).getvalue()
             return Response(audio_data, media_type=f"audio/{media_type}")
+
     except Exception as e:
-        return JSONResponse(status_code=400, content={"message": f"tts failed", "Exception": str(e)})
+        import traceback
+        
+        print(traceback.format_exc())
+        return JSONResponse(
+            status_code=400,
+            content={
+                "message": "tts failed",
+                "Exception": str(e)
+            }
+        )
+
 
 
 
@@ -525,6 +538,58 @@ async def tts_post_endpoint(request: TTS_Request):
     req = request.dict()
     return await tts_handle(req)
 
+@APP.get("/tts")
+async def tts_get_endpoint(
+                        text: str = None,
+                        text_lang: str = None,
+                        ref_audio_path: str = None,
+                        aux_ref_audio_paths:list = None,
+                        prompt_lang: str = None,
+                        prompt_text: str = "",
+                        top_k:int = 5,
+                        top_p:float = 1,
+                        temperature:float = 1,
+                        text_split_method:str = "cut5",
+                        batch_size:int = 1,
+                        batch_threshold:float = 0.75,
+                        split_bucket:bool = True,
+                        speed_factor:float = 1.0,
+                        fragment_interval:float = 0.3,
+                        seed:int = -1,
+                        media_type:str = "wav",
+                        streaming_mode:bool = False,
+                        parallel_infer:bool = True,
+                        repetition_penalty:float = 1.35
+                        ):
+    req = {
+        "text": text,
+        "text_lang": text_lang.lower(),
+        "ref_audio_path": ref_audio_path,
+        "aux_ref_audio_paths": aux_ref_audio_paths,
+        "prompt_text": prompt_text,
+        "prompt_lang": prompt_lang.lower(),
+        "top_k": top_k,
+        "top_p": top_p,
+        "temperature": temperature,
+        "text_split_method": text_split_method,
+        "batch_size":int(batch_size),
+        "batch_threshold":float(batch_threshold),
+        "speed_factor":float(speed_factor),
+        "split_bucket":split_bucket,
+        "fragment_interval":fragment_interval,
+        "seed":seed,
+        "media_type":media_type,
+        "streaming_mode":streaming_mode,
+        "parallel_infer":parallel_infer,
+        "repetition_penalty":float(repetition_penalty)
+    }
+    return await tts_handle(req)
+                
+
+@APP.post("/tts")
+async def tts_post_endpoint(request: TTS_Request):
+    req = request.dict()
+    return await tts_handle(req)
 
 @APP.get("/set_refer_audio")
 async def set_refer_aduio(refer_audio_path: str = None):
@@ -618,7 +683,7 @@ if __name__ == "__main__":
     try:
         signal.signal(signal.SIGTERM, graceful_exit)
         signal.signal(signal.SIGINT, graceful_exit)  
-        uvicorn.run(app=APP, host="0.0.0.0", port=9880, workers=1)
+        uvicorn.run(app="api_v2:APP", host="0.0.0.0", port=9880, workers=1)
     except Exception as e:
         traceback.print_exc()
         os.kill(os.getpid(), signal.SIGTERM)
