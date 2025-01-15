@@ -506,6 +506,15 @@ class TTS:
                  precision:torch.dtype=torch.float32,
                  ):
         _data:list = []
+        # 计算可用显存
+        if str(device).startswith('cuda'):
+            free_memory = torch.cuda.get_device_properties(device).total_memory - torch.cuda.memory_allocated(device)
+            # 动态调整batch_size
+            if free_memory < 4 * 1024 * 1024 * 1024:  # 4GB
+                batch_size = min(batch_size, 2)
+            elif free_memory < 8 * 1024 * 1024 * 1024:  # 8GB
+                batch_size = min(batch_size, 4)
+
         index_and_len_list = []
         for idx, item in enumerate(data):
             norm_text_len = len(item["norm_text"])
@@ -824,7 +833,6 @@ class TTS:
         t2 = ttime()
         try:
             print("############ 推理 ############")
-            ###### inference ######
             t_34 = 0.0
             t_45 = 0.0
             audio = []
@@ -924,9 +932,19 @@ class TTS:
                 else:
                     audio.append(batch_audio_fragment)
 
+                # 清理中间变量
+                del pred_semantic_list
+                del idx_list
+                if speed_factor == 1.0:
+                    del all_pred_semantic
+                    del _batch_phones
+                    del _batch_audio_fragment
+                
+                # 主动进行内存清理
+                self.empty_cache()
+
                 if self.stop_flag:
-                    yield self.configs.sampling_rate, np.zeros(int(self.configs.sampling_rate),
-                                                            dtype=np.int16)
+                    yield self.configs.sampling_rate, np.zeros(int(self.configs.sampling_rate), dtype=np.int16)
                     return
 
             if not return_fragment:
@@ -945,16 +963,35 @@ class TTS:
 
         except Exception as e:
             traceback.print_exc()
-            # 必须返回一个空音频, 否则会导致显存不释放。
-            yield self.configs.sampling_rate, np.zeros(int(self.configs.sampling_rate),
-                                                            dtype=np.int16)
-            # 重置模型, 否则会导致显存释放不完全。
-            del self.t2s_model
-            del self.vits_model
-            self.t2s_model = None
-            self.vits_model = None
-            self.init_t2s_weights(self.configs.t2s_weights_path)
-            self.init_vits_weights(self.configs.vits_weights_path)
+            error_msg = f"Error during inference: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            
+            # 记录错误日志
+            import logging
+            logging.error(error_msg)
+            
+            # 返回空音频
+            empty_audio = np.zeros(int(self.configs.sampling_rate), dtype=np.int16)
+            yield self.configs.sampling_rate, empty_audio
+            
+            try:
+                # 重置模型
+                print("Attempting to reset models...")
+                if hasattr(self, 't2s_model') and self.t2s_model is not None:
+                    del self.t2s_model
+                    self.t2s_model = None
+                if hasattr(self, 'vits_model') and self.vits_model is not None:
+                    del self.vits_model
+                    self.vits_model = None
+                    
+                self.empty_cache()
+                self.init_t2s_weights(self.configs.t2s_weights_path)
+                self.init_vits_weights(self.configs.vits_weights_path)
+                print("Models reset successfully")
+            except Exception as reset_error:
+                print(f"Failed to reset models: {str(reset_error)}")
+                raise reset_error
+            
             raise e
         finally:
             self.empty_cache()
@@ -977,6 +1014,10 @@ class TTS:
                           split_bucket:bool=True,
                           fragment_interval:float=0.3
                           )->Tuple[int, np.ndarray]:
+        # 添加音频质量控制参数
+        max_amplitude = 0.95  # 防止爆音
+        noise_gate = 0.001   # 噪声门限
+        
         zero_wav = torch.zeros(
                         int(self.configs.sampling_rate * fragment_interval),
                         dtype=self.precision,
@@ -994,9 +1035,15 @@ class TTS:
         
         for i, batch in enumerate(audio):
             for j, audio_fragment in enumerate(batch):
-                max_audio=torch.abs(audio_fragment).max()#简单防止16bit爆音
-                if max_audio>1: audio_fragment/=max_audio
-                audio_fragment:torch.Tensor = torch.cat([audio_fragment, zero_wav], dim=0)
+                # 应用噪声门限
+                audio_fragment[torch.abs(audio_fragment) < noise_gate] = 0
+                
+                # 动态范围压缩
+                max_audio = torch.abs(audio_fragment).max()
+                if max_audio > max_amplitude:
+                    audio_fragment *= (max_amplitude / max_audio)
+                
+                audio_fragment = torch.cat([audio_fragment, zero_wav], dim=0)
                 audio[i][j] = audio_fragment.cpu().numpy()
             
         
