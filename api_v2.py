@@ -629,6 +629,12 @@ async def set_gpt_weights(weights_path: str = None):
 
     return JSONResponse(status_code=200, content={"message": "success"})
 
+@APP.get("/get_gpt_weights")
+async def get_gpt_weights():
+    gpt_weights = []
+    for name in os.listdir("GPT_weights_v2"):
+        gpt_weights.append({"name": name})
+    return JSONResponse(gpt_weights, status_code=200)
 
 @APP.get("/set_sovits_weights")
 async def set_sovits_weights(weights_path: str = None):
@@ -639,6 +645,13 @@ async def set_sovits_weights(weights_path: str = None):
     except Exception as e:
         return JSONResponse(status_code=400, content={"message": f"change sovits weight failed", "Exception": str(e)})
     return JSONResponse(status_code=200, content={"message": "success"})
+
+@APP.get("/get_sovits_weights")
+async def get_sovits_weights():
+    sovits_weights = []
+    for name in os.listdir("SoVITS_weights_v2"):
+        sovits_weights.append({"name": name})
+    return JSONResponse(sovits_weights, status_code=200)
 
 
 @APP.get("/speakers")
